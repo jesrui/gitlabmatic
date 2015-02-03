@@ -1,0 +1,82 @@
+#!/usr/bin/env python
+import logging
+logging.basicConfig(format='%(levelname)s:%(funcName)s:%(message)s',
+                    level=logging.INFO)
+import urllib
+import urllib2
+from ConfigParser import SafeConfigParser
+import json
+import os
+import os.path
+import shutil
+from subprocess import check_call, check_output, CalledProcessError
+import xdg.BaseDirectory
+
+EDITOR = os.environ.get('EDITOR', 'vim')
+
+gitlab_config_file = os.path.join(xdg.BaseDirectory.xdg_config_home, 'gitlab')
+conf_parser = SafeConfigParser()
+conf_parser.read(gitlab_config_file)
+
+if conf_parser.has_section('general'):
+    cur_site = conf_parser.get('general', 'default')
+else:
+    cur_site = conf_parser.sections()[0]
+gitlab_token = conf_parser.get(cur_site, 'token')
+gitlab_base_url = conf_parser.get(cur_site, 'base_url')
+
+curdir = os.path.abspath(os.curdir)
+pkgname = os.path.basename(curdir)
+clone_repo = '{}.git'.format(pkgname)
+
+# creation of the new repo itself
+check_call(['git', 'clone', '--bare', '.', clone_repo])
+
+try:
+    check_call('( cd {} ; git gc --auto --prune )'.format(clone_repo),
+               shell=True)
+
+    # move the repo data to the remote server
+    # scp -r $PKGNAME.git luther:/srv/git/
+    req = urllib2.Request(url='{}/projects/'.format(gitlab_base_url))
+    req.add_header('PRIVATE-TOKEN', gitlab_token)
+    paras = {
+        'name': pkgname,
+        'descripton': pkgname,
+        'wiki_enabled': 'false',
+        'public': 'true',
+    }
+    req.add_data(urllib.urlencode(paras))
+    logging.debug('req:\n%s', str(req))
+    logging.debug('req:\n%s', req.get_full_url())
+    logging.debug('req:\n%s', req.get_data())
+    logging.debug('req:\n%s', req.header_items())
+    ret = urllib2.urlopen(req)
+
+    logging.debug('retcode = %d', ret.getcode())
+    if (ret.getcode() / 100) == 2:
+        response = json.load(ret)
+        logging.debug('response:\n%s', str(response))
+
+        push_url = response['ssh_url_to_repo']
+        pull_url = response['http_url_to_repo']
+
+    # set up remotes
+    check_call(['git', 'remote', 'add', 'gitlab', pull_url])
+    check_call(['git', 'remote', 'set-url', '--push', 'gitlab',
+                push_url])
+    check_call(['git', 'remote', 'update'])
+
+    # make the current branch track the remote branch of the same name
+    branch = check_output(['git', 'symbolic-ref', 'HEAD']).strip()
+    branch = os.path.basename(branch)
+    check_call(['git', 'branch', '-u', 'gitlab/{}'.format(branch)])
+
+except CalledProcessError:
+    pass
+
+finally:
+    shutil.rmtree(clone_repo, ignore_errors=True)
+
+
+shutil.rmtree(clone_repo, ignore_errors=True)
