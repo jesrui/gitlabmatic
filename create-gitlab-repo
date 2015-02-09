@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import argparse
 import json
 import logging
 import os.path
@@ -18,16 +19,29 @@ import xdg.BaseDirectory
 logging.basicConfig(format='%(levelname)s:%(funcName)s:%(message)s',
                     level=logging.INFO)
 
-gitlab_config_file = os.path.join(xdg.BaseDirectory.xdg_config_home, 'gitlab')
-conf_parser = SafeConfigParser()
-conf_parser.read(gitlab_config_file)
+def get_config(section):
+    gitlab_config_file = os.path.join(xdg.BaseDirectory.xdg_config_home,
+                                      'gitlab')
+    conf_parser = SafeConfigParser()
+    conf_parser.read(gitlab_config_file)
 
-if conf_parser.has_section('general'):
-    cur_site = conf_parser.get('general', 'default')
-else:
-    cur_site = conf_parser.sections()[0]
-gitlab_token = conf_parser.get(cur_site, 'token')
-gitlab_base_url = conf_parser.get(cur_site, 'base_url')
+    if section is not None:
+        cur_site = section
+    elif conf_parser.has_section('general'):
+        cur_site = conf_parser.get('general', 'default')
+    else:
+        cur_site = conf_parser.sections()[0]
+
+    token = conf_parser.get(cur_site, 'token')
+    base_url = conf_parser.get(cur_site, 'base_url')
+    return token, base_url
+
+arg_parser = argparse.ArgumentParser()
+arg_parser.add_argument('server', help='label for a Gitlab server',
+                        nargs='?')
+args = arg_parser.parse_args()
+
+gitlab_token, gitlab_base_url = get_config(args.server)
 
 curdir = os.path.abspath(os.curdir)
 pkgname = os.path.basename(curdir)
