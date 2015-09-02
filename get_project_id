@@ -1,0 +1,77 @@
+#!/usr/bin/env python
+import argparse
+import json
+import logging
+import os.path
+import urllib
+import urllib2
+import urlparse
+
+import xdg.BaseDirectory
+
+from ConfigParser import SafeConfigParser
+from pprint import pformat
+#from subprocess import CalledProcessError, check_call, check_output
+try:
+    import readline  # noqa
+except ImportError:
+    pass
+
+
+logging.basicConfig(format='%(levelname)s:%(funcName)s:%(message)s',
+                    level=logging.INFO)
+
+def get_config(section):
+    gitlab_config_file = os.path.join(xdg.BaseDirectory.xdg_config_home,
+                                      'gitlab')
+    conf_parser = SafeConfigParser()
+    conf_parser.read(gitlab_config_file)
+
+    if section is not None:
+        cur_site = section
+    elif conf_parser.has_section('general'):
+        cur_site = conf_parser.get('general', 'default')
+    else:
+        cur_site = conf_parser.sections()[0]
+
+    token = conf_parser.get(cur_site, 'token')
+    base_url = conf_parser.get(cur_site, 'base_url')
+    return token, base_url
+
+arg_parser = argparse.ArgumentParser()
+arg_parser.add_argument('server', help='label for a Gitlab server',
+                        nargs='?')
+args = arg_parser.parse_args()
+
+gitlab_token, gitlab_base_url = get_config(args.server)
+
+curdir = os.path.abspath(os.curdir)
+pkgname = os.path.basename(curdir)
+clone_repo = '{}.git'.format(pkgname)
+
+try:
+    # move the repo data to the remote server
+    # scp -r $PKGNAME.git luther:/srv/git/
+    split = list(urlparse.urlsplit(
+        '{}/projects/'.format(gitlab_base_url)))
+    split[3] = urllib.urlencode({'search': pkgname})
+    url = urlparse.urlunsplit(split)
+    req = urllib2.Request(url=url)
+    req.add_header('PRIVATE-TOKEN', gitlab_token)
+
+    ret = urllib2.urlopen(req)
+except:
+    raise
+
+logging.debug('retcode = %d', ret.getcode())
+if (ret.getcode() / 100) == 2:
+    response = json.load(ret)
+    if len(response) != 1:
+        raise ValueError('Wrong number of projects found: %d'
+                         % len(response))
+    logging.debug('response:\n%s\n\n', pformat(response))
+    repo_id = response[0][u'id']
+else:
+    raise IOError('Non-200 status code from URL request: %d', ret.getcode())
+
+print(repo_id)
