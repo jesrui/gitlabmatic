@@ -38,8 +38,8 @@ def get_config(section):
     return token, base_url
 
 arg_parser = argparse.ArgumentParser()
-arg_parser.add_argument('server', help='label for a Gitlab server',
-                        nargs='?')
+arg_parser.add_argument('--server', help='label for a Gitlab server')
+arg_parser.add_argument('--name', help='name of the created repository')
 args = arg_parser.parse_args()
 
 gitlab_token, gitlab_base_url = get_config(args.server)
@@ -50,6 +50,8 @@ clone_repo = '{}.git'.format(pkgname)
 
 # creation of the new repo itself
 check_call(['git', 'clone', '--bare', '.', clone_repo])
+
+reponame = args.name.strip() if args.name is not None else pkgname
 
 try:
     check_call('( cd {} ; git gc --auto --prune )'.format(clone_repo),
@@ -66,7 +68,7 @@ try:
     req = urllib2.Request(url='{}/projects/'.format(gitlab_base_url))
     req.add_header('PRIVATE-TOKEN', gitlab_token)
     paras = {
-        'name': pkgname,
+        'name': reponame,
         'descripton': desc,
         'wiki_enabled': 'false',
         'merge_requests_enabled': 'true',
