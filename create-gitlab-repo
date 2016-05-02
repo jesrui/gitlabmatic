@@ -4,12 +4,11 @@ import json
 import logging
 import os.path
 import shutil
-import urllib
-import urllib2
+import urllib.request, urllib.error, urllib.parse
 
 import xdg.BaseDirectory
 
-from ConfigParser import SafeConfigParser
+from configparser import SafeConfigParser
 from subprocess import CalledProcessError, check_call, check_output
 try:
     import readline  # noqa
@@ -58,14 +57,14 @@ try:
                shell=True)
 
     # collect description
-    desc = raw_input('Enter a brief description of the project:\n').strip()
+    desc = input('Enter a brief description of the project:\n').strip()
     logging.debug('desc = "{}"'.format(desc))
     if len(desc) == 0:
         raise KeyboardInterrupt('Premature termination')
 
     # move the repo data to the remote server
     # scp -r $PKGNAME.git luther:/srv/git/
-    req = urllib2.Request(url='{}/projects/'.format(gitlab_base_url))
+    req = urllib.request.Request(url='{}/projects/'.format(gitlab_base_url))
     req.add_header('PRIVATE-TOKEN', gitlab_token)
     paras = {
         'name': reponame,
@@ -75,16 +74,17 @@ try:
         'issues_enabled': 'true',
         'public': 'true',
     }
-    req.add_data(urllib.urlencode(paras))
+    req.data = str.encode(urllib.parse.urlencode(paras))
     logging.debug('req:\n%s', str(req))
     logging.debug('req:\n%s', req.get_full_url())
-    logging.debug('req:\n%s', req.get_data())
+    logging.debug('req:\n%s', req.data)
     logging.debug('req:\n%s', req.header_items())
-    ret = urllib2.urlopen(req)
+    ret = urllib.request.urlopen(req)
 
     logging.debug('retcode = %d', ret.getcode())
-    if (ret.getcode() / 100) == 2:
-        response = json.load(ret)
+    if ret.getcode() == 201:
+        body = ret.read()
+        response = json.loads(body.decode())
         logging.debug('response:\n%s', str(response))
 
         push_url = response['ssh_url_to_repo']
@@ -102,10 +102,10 @@ try:
     # Unprotect master branch
     unprotect_url = '%s/projects/%d/repository/branches/master/unprotect' \
         % (gitlab_base_url, project_id,)
-    req = urllib2.Request(url=unprotect_url)
+    req = urllib.request.Request(url=unprotect_url)
     req.get_method = lambda: 'PUT'
     req.add_header('PRIVATE-TOKEN', gitlab_token)
-    urllib2.urlopen(req)
+    urllib.request.urlopen(req)
 
     # make the current branch track the remote branch of the same name
     branch = check_output(['git', 'symbolic-ref', 'HEAD']).strip()
