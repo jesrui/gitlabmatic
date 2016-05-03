@@ -11,13 +11,17 @@ from configparser import SafeConfigParser
 from subprocess import CalledProcessError, check_call, check_output
 
 arg_parser = argparse.ArgumentParser()
+arg_parser.add_argument('command', help='the action to execute',
+                        choices=['create_repo', 'project_id'])
 arg_parser.add_argument('--server', help='label for a Gitlab server')
 arg_parser.add_argument('--name', help='name of the created repository')
-arg_parser.add_argument('--log', help='logging level', choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'])
+arg_parser.add_argument('--desc', help='repo description', default='')
+arg_parser.add_argument('--log', help='logging level',
+                        choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'],
+                        default='INFO')
 args = arg_parser.parse_args()
 
-# assuming loglevel is bound to the string value obtained from the
-# command line argument. Convert to upper case to allow the user to
+# Convert to upper case to allow the user to
 # specify --log=DEBUG or --log=debug
 numeric_log_level = getattr(logging, args.log.upper(), None)
 if not isinstance(numeric_log_level, int):
@@ -50,19 +54,32 @@ pkgname = os.path.basename(curdir)
 
 reponame = args.name.strip() if args.name is not None else pkgname
 
-try:
-    # collect description
-    desc = input('Enter a brief description of the project:\n').strip()
-    logging.debug('desc = "{}"'.format(desc))
-    if len(desc) == 0:
-        raise KeyboardInterrupt('Premature termination')
+def get_project_id():
+    split = list(urllib.parse.urlsplit('{}/projects/'.format(gitlab_base_url)))
+    split[3] = urllib.parse.urlencode({'search': pkgname})
+    url = urllib.parse.urlunsplit(split)
+    req = urllib.request.Request(url=url)
+    req.add_header('PRIVATE-TOKEN', gitlab_token)
 
-    # create repo on remote site
+    ret = urllib.request.urlopen(req)
+
+    if ret.getcode()//100 != 2:
+        raise Exception('Failed to search project: response code: {} {}'.
+                format(ret.getcode(), ret.reason))
+
+    body = ret.read()
+    response = json.loads(body.decode())
+    logging.debug('response:\n%s', str(response))
+
+    return response[0][u'id']
+
+# create repo on remote site
+def create_repo():
     req = urllib.request.Request(url='{}/projects/'.format(gitlab_base_url))
     req.add_header('PRIVATE-TOKEN', gitlab_token)
     paras = {
         'name': reponame,
-        'descripton': desc,
+        'descripton': args.desc,
         'wiki_enabled': 'false',
         'merge_requests_enabled': 'true',
         'issues_enabled': 'true',
@@ -77,8 +94,8 @@ try:
 
     logging.debug('retcode = %d', ret.getcode())
     if ret.getcode() != 201:
-        raise Exception('Failed to create project: response code: {}'.
-                format(ret.reason()))
+        raise Exception('Failed to create project: response code: {} {}'.
+                format(ret.getcode(), ret.reason))
 
     body = ret.read()
     response = json.loads(body.decode())
@@ -92,6 +109,14 @@ try:
     # set up remotes
     check_call(['git', 'remote', 'add', 'gitlab', pull_url])
     check_call(['git', 'remote', 'set-url', '--push', 'gitlab', push_url])
+
+try:
+    if args.command == 'project_id':
+        print(get_project_id())
+    elif command == 'create_repo':
+        create_repo()
+    else:
+        pass
 
 except CalledProcessError:
     pass
