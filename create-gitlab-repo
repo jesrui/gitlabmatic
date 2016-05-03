@@ -10,15 +10,99 @@ import xdg.BaseDirectory
 from configparser import SafeConfigParser
 from subprocess import CalledProcessError, check_call, check_output
 
+def do_get_project_id(args):
+    split = list(urllib.parse.urlsplit('{}/projects/'.format(gitlab_base_url)))
+    split[3] = urllib.parse.urlencode({'search': pkgname})
+    url = urllib.parse.urlunsplit(split)
+    req = urllib.request.Request(url=url)
+    req.add_header('PRIVATE-TOKEN', gitlab_token)
+
+    ret = urllib.request.urlopen(req)
+
+    if ret.getcode()//100 != 2:
+        raise Exception('Failed to search project: response code: {} {}'.
+                format(ret.getcode(), ret.reason))
+
+    body = ret.read()
+    response = json.loads(body.decode())
+    logging.debug('response:\n%s', str(response))
+
+    return response[0][u'id']
+
+def get_project_id(args):
+    print(do_get_project_id(args))
+
+# create repo on remote site
+def create_repo(args):
+    req = urllib.request.Request(url='{}/projects/'.format(gitlab_base_url))
+    req.add_header('PRIVATE-TOKEN', gitlab_token)
+    reponame = args.name.strip() if args.name is not None else pkgname
+    paras = {
+        'name': reponame,
+        'descripton': args.desc,
+        'wiki_enabled': 'false',
+        'merge_requests_enabled': 'true',
+        'issues_enabled': 'true',
+        'public': 'true',
+    }
+    req.data = str.encode(urllib.parse.urlencode(paras))
+    logging.debug('req:\n%s', str(req))
+    logging.debug('req:\n%s', req.get_full_url())
+    logging.debug('req:\n%s', req.data)
+    logging.debug('req:\n%s', req.header_items())
+    ret = urllib.request.urlopen(req)
+
+    logging.debug('retcode = %d', ret.getcode())
+    if ret.getcode() != 201:
+        raise Exception('Failed to create project: response code: {} {}'.
+                        format(ret.getcode(), ret.reason))
+
+    body = ret.read()
+    response = json.loads(body.decode())
+    logging.debug('response:\n%s', str(response))
+
+    push_url = response['ssh_url_to_repo']
+    pull_url = response['http_url_to_repo']
+    project_id = response['id']
+    logging.debug('project_id = %d' % project_id)
+
+    # set up remotes
+    check_call(['git', 'remote', 'add', 'gitlab', pull_url])
+    check_call(['git', 'remote', 'set-url', '--push', 'gitlab', push_url])
+
+def unprotect_branch(args):
+    project_id = do_get_project_id(args)
+    unprotect_url = '%s/projects/%d/repository/branches/%s/unprotect' \
+        % (gitlab_base_url, project_id, args.branch)
+    req = urllib.request.Request(url=unprotect_url)
+    req.get_method = lambda: 'PUT'
+    req.add_header('PRIVATE-TOKEN', gitlab_token)
+    ret = urllib.request.urlopen(req)
+
+    if ret.getcode()//100 != 2:
+        raise Exception('Failed to unprotect branch {}: response code: {} {}'.
+                format(args.branch, ret.getcode(), ret.reason))
+
 arg_parser = argparse.ArgumentParser()
-arg_parser.add_argument('command', help='the action to execute',
-                        choices=['create_repo', 'project_id'])
 arg_parser.add_argument('--server', help='label for a Gitlab server')
-arg_parser.add_argument('--name', help='name of the created repository')
-arg_parser.add_argument('--desc', help='repo description', default='')
 arg_parser.add_argument('--log', help='logging level',
                         choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'],
                         default='INFO')
+subparsers = arg_parser.add_subparsers()
+
+arg_create_repo = subparsers.add_parser('create_repo')
+arg_create_repo.add_argument('--name', help='name of the created repository')
+arg_create_repo.add_argument('--desc', help='repository description', default='')
+arg_create_repo.set_defaults(func=create_repo)
+
+arg_project_id = subparsers.add_parser('project_id')
+arg_project_id.set_defaults(func=get_project_id)
+
+arg_unprotect_branch = subparsers.add_parser('unprotect_branch')
+arg_unprotect_branch.add_argument('branch', help='the branch to act upon',
+                                  nargs = '?', default='master')
+arg_unprotect_branch.set_defaults(func=unprotect_branch)
+
 args = arg_parser.parse_args()
 
 # Convert to upper case to allow the user to
@@ -52,71 +136,8 @@ gitlab_token, gitlab_base_url = get_config(args.server)
 curdir = os.path.abspath(os.curdir)
 pkgname = os.path.basename(curdir)
 
-reponame = args.name.strip() if args.name is not None else pkgname
-
-def get_project_id():
-    split = list(urllib.parse.urlsplit('{}/projects/'.format(gitlab_base_url)))
-    split[3] = urllib.parse.urlencode({'search': pkgname})
-    url = urllib.parse.urlunsplit(split)
-    req = urllib.request.Request(url=url)
-    req.add_header('PRIVATE-TOKEN', gitlab_token)
-
-    ret = urllib.request.urlopen(req)
-
-    if ret.getcode()//100 != 2:
-        raise Exception('Failed to search project: response code: {} {}'.
-                format(ret.getcode(), ret.reason))
-
-    body = ret.read()
-    response = json.loads(body.decode())
-    logging.debug('response:\n%s', str(response))
-
-    return response[0][u'id']
-
-# create repo on remote site
-def create_repo():
-    req = urllib.request.Request(url='{}/projects/'.format(gitlab_base_url))
-    req.add_header('PRIVATE-TOKEN', gitlab_token)
-    paras = {
-        'name': reponame,
-        'descripton': args.desc,
-        'wiki_enabled': 'false',
-        'merge_requests_enabled': 'true',
-        'issues_enabled': 'true',
-        'public': 'true',
-    }
-    req.data = str.encode(urllib.parse.urlencode(paras))
-    logging.debug('req:\n%s', str(req))
-    logging.debug('req:\n%s', req.get_full_url())
-    logging.debug('req:\n%s', req.data)
-    logging.debug('req:\n%s', req.header_items())
-    ret = urllib.request.urlopen(req)
-
-    logging.debug('retcode = %d', ret.getcode())
-    if ret.getcode() != 201:
-        raise Exception('Failed to create project: response code: {} {}'.
-                format(ret.getcode(), ret.reason))
-
-    body = ret.read()
-    response = json.loads(body.decode())
-    logging.debug('response:\n%s', str(response))
-
-    push_url = response['ssh_url_to_repo']
-    pull_url = response['http_url_to_repo']
-    project_id = response['id']
-    logging.debug('project_id = %d' % project_id)
-
-    # set up remotes
-    check_call(['git', 'remote', 'add', 'gitlab', pull_url])
-    check_call(['git', 'remote', 'set-url', '--push', 'gitlab', push_url])
-
 try:
-    if args.command == 'project_id':
-        print(get_project_id())
-    elif command == 'create_repo':
-        create_repo()
-    else:
-        pass
+    args.func(args)
 
 except CalledProcessError:
     pass
