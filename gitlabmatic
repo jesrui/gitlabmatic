@@ -137,7 +137,10 @@ curdir = os.path.abspath(os.curdir)
 pkgname = os.path.basename(curdir)
 
 try:
-    args.func(args)
+    if hasattr(args, 'func'):
+        args.func(args)
+    else:
+        print(arg_parser.print_help())
 
 except CalledProcessError:
     pass
