@@ -3,18 +3,12 @@ import argparse
 import json
 import logging
 import os.path
-import shutil
 import urllib.request, urllib.error, urllib.parse
 
 import xdg.BaseDirectory
 
 from configparser import SafeConfigParser
 from subprocess import CalledProcessError, check_call, check_output
-try:
-    import readline  # noqa
-except ImportError:
-    pass
-
 
 logging.basicConfig(format='%(levelname)s:%(funcName)s:%(message)s',
                     level=logging.DEBUG)
@@ -45,25 +39,17 @@ gitlab_token, gitlab_base_url = get_config(args.server)
 
 curdir = os.path.abspath(os.curdir)
 pkgname = os.path.basename(curdir)
-clone_repo = '{}.git'.format(pkgname)
-
-# creation of the new repo itself
-check_call(['git', 'clone', '--bare', '.', clone_repo])
 
 reponame = args.name.strip() if args.name is not None else pkgname
 
 try:
-    check_call('( cd {} ; git gc --auto --prune )'.format(clone_repo),
-               shell=True)
-
     # collect description
     desc = input('Enter a brief description of the project:\n').strip()
     logging.debug('desc = "{}"'.format(desc))
     if len(desc) == 0:
         raise KeyboardInterrupt('Premature termination')
 
-    # move the repo data to the remote server
-    # scp -r $PKGNAME.git luther:/srv/git/
+    # create repo on remote site
     req = urllib.request.Request(url='{}/projects/'.format(gitlab_base_url))
     req.add_header('PRIVATE-TOKEN', gitlab_token)
     paras = {
@@ -82,35 +68,22 @@ try:
     ret = urllib.request.urlopen(req)
 
     logging.debug('retcode = %d', ret.getcode())
-    if ret.getcode() == 201:
-        body = ret.read()
-        response = json.loads(body.decode())
-        logging.debug('response:\n%s', str(response))
+    if ret.getcode() != 201:
+        raise Exception('Failed to create project: response code: {}'.
+                format(ret.reason()))
 
-        push_url = response['ssh_url_to_repo']
-        pull_url = response['http_url_to_repo']
-        project_id = response['id']
-        logging.debug('project_id = %d' % project_id)
+    body = ret.read()
+    response = json.loads(body.decode())
+    logging.debug('response:\n%s', str(response))
+
+    push_url = response['ssh_url_to_repo']
+    pull_url = response['http_url_to_repo']
+    project_id = response['id']
+    logging.debug('project_id = %d' % project_id)
 
     # set up remotes
     check_call(['git', 'remote', 'add', 'gitlab', pull_url])
-    check_call(['git', 'remote', 'set-url', '--push', 'gitlab',
-                push_url])
-    check_call(['git', 'push', '--all', 'gitlab'])
-    check_call(['git', 'push', '--tags', 'gitlab'])
-
-    # Unprotect master branch
-    unprotect_url = '%s/projects/%d/repository/branches/master/unprotect' \
-        % (gitlab_base_url, project_id,)
-    req = urllib.request.Request(url=unprotect_url)
-    req.get_method = lambda: 'PUT'
-    req.add_header('PRIVATE-TOKEN', gitlab_token)
-    urllib.request.urlopen(req)
-
-    # make the current branch track the remote branch of the same name
-    branch = check_output(['git', 'symbolic-ref', 'HEAD']).strip()
-    branch = os.path.basename(branch)
-    check_call(['git', 'branch', '-u', 'gitlab/{}'.format(branch)])
+    check_call(['git', 'remote', 'set-url', '--push', 'gitlab', push_url])
 
 except CalledProcessError:
     pass
@@ -118,8 +91,3 @@ except CalledProcessError:
 except KeyboardInterrupt:
     pass
 
-finally:
-    shutil.rmtree(clone_repo, ignore_errors=True)
-
-
-shutil.rmtree(clone_repo, ignore_errors=True)
