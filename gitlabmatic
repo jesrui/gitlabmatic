@@ -11,8 +11,9 @@ from configparser import SafeConfigParser
 from subprocess import CalledProcessError, check_call, check_output
 
 def do_get_project_id(args):
+    reponame = args.reponame.strip() if args.reponame is not None else pkgname
     split = list(urllib.parse.urlsplit('{}/projects/'.format(gitlab_base_url)))
-    split[3] = urllib.parse.urlencode({'search': pkgname})
+    split[3] = urllib.parse.urlencode({'search': reponame})
     url = urllib.parse.urlunsplit(split)
     req = urllib.request.Request(url=url)
     req.add_header('PRIVATE-TOKEN', gitlab_token)
@@ -36,7 +37,7 @@ def get_project_id(args):
 def create_repo(args):
     req = urllib.request.Request(url='{}/projects/'.format(gitlab_base_url))
     req.add_header('PRIVATE-TOKEN', gitlab_token)
-    reponame = args.name.strip() if args.name is not None else pkgname
+    reponame = args.reponame.strip() if args.reponame is not None else pkgname
     paras = {
         'name': reponame,
         'descripton': args.desc,
@@ -88,10 +89,10 @@ arg_parser.add_argument('--server', help='label for a Gitlab server')
 arg_parser.add_argument('--log', help='logging level',
                         choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'],
                         default='INFO')
+arg_parser.add_argument('--reponame', help='name of the repository')
 subparsers = arg_parser.add_subparsers()
 
 arg_create_repo = subparsers.add_parser('create_repo')
-arg_create_repo.add_argument('--name', help='name of the created repository')
 arg_create_repo.add_argument('--desc', help='repository description', default='')
 arg_create_repo.set_defaults(func=create_repo)
 
