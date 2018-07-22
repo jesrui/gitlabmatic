@@ -28,7 +28,8 @@ def do_get_project_id(args):
     response = json.loads(body.decode())
     logging.debug('response:\n%s', str(response))
 
-    return response[0][u'id']
+    found = next(r for r in response if r[u'name'] == reponame)
+    return found[u'id']
 
 def get_project_id(args):
     print(do_get_project_id(args))
