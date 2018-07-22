@@ -10,7 +10,7 @@ Here is a sample config file:
 default = gitlab.com
 [gitlab.com]
 token = xxx
-base_url = https://gitlab.com/api/v3
+base_url = https://gitlab.com/api/v4
 ```
 
 If you are using gitlab.com you can find your private token in your
@@ -25,6 +25,7 @@ available currently are: `create_repo`, `project_id`, and `unprotect_branch`.
 $ ./gitlabmatic --help
 usage: gitlabmatic [-h] [--server SERVER]
                    [--log {DEBUG,INFO,WARNING,ERROR,CRITICAL}]
+                   [--reponame REPONAME]
                    {create_repo,project_id,unprotect_branch} ...
 
 positional arguments:
@@ -35,6 +36,7 @@ optional arguments:
   --server SERVER       label for a Gitlab server
   --log {DEBUG,INFO,WARNING,ERROR,CRITICAL}
                         logging level
+  --reponame REPONAME   name of the repository
 ```
 
 Run `./gitlabmatic <command> --help` for some help on an specific command.
